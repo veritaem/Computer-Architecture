@@ -6,7 +6,7 @@ SHL, SHR = 0b10101100, 0b10101101
 CALL, RET, INT, IRET = 0b01010000, 0b00010001, 0b01010010, 0b00010011
 JMP, JEQ, JNE, JGT, JLT, JLE, JGE = 0b01010100, 0b01010101, 0b01010110, 0b01010111, 0b01011000, 0b01011001, 0b01011010
 NOP, HLT = 0b00000000, 0b00000001 
-LDI, LD, ST = 0b10000010, 0b10000011, 0b10000100
+LDI, LD, ST, ADDI = 0b10000010, 0b10000011, 0b10000100, 0b11001111
 PUSH, POP, PRN, PRA = 0b01000101, 0b01000110, 0b01000111, 0b01001000
 SP = 7
 
@@ -15,10 +15,12 @@ class CPU:
         """Construct a new CPU."""
         self.reg = [0] * 8
         self.ram = [0] * 256
+        self.fl = 0b00000000
         self.pc = 0
         self.bt = {PRN:self.handle_prn, POP:self.handle_pop, PUSH:self.handle_push, LDI:self.handle_ldi, ADD:self.alu,
         MUL:self.alu, SUB:self.alu, DIV:self.alu, MOD:self.alu, INC:self.alu, DEC:self.alu, CMP:self.alu, AND:self.alu,
-        OR:self.alu, NOT:self.alu, XOR:self.alu, SHL:self.alu, SHR:self.alu, CALL:self.call, RET:self.ret}
+        OR:self.alu, NOT:self.alu, XOR:self.alu, SHL:self.alu, SHR:self.alu, CALL:self.call, RET:self.ret, JMP:self.handle_jmp,
+        JEQ:self.handle_jeq, JNE:self.handle_jne, ADDI:self.handle_addi}
         self.reg[SP] = 0xf4
     def ram_read(self, address):
         return self.ram[address]
@@ -36,7 +38,7 @@ class CPU:
                 self.ram_write(address, val)
                 address += 1
 
-    def alu(self, op, reg_a = None, reg_b = None):
+    def alu(self, op, reg_a = None, reg_b = None, v = None):
         """ALU operations."""
         if op == ADD:
             self.pc += 3
@@ -61,8 +63,14 @@ class CPU:
             self.reg[reg_b] -= 1
         elif op == CMP:
             self.pc += 3
-            if self.reg[reg_a] < self.reg[reg_b]:
-                self.reg[reg_a] = self.reg[reg_a]
+            v = self.reg[reg_a] - self.reg[reg_b]
+            if v > 0:
+                self.fl = 0b00000010
+            elif v == 0:
+                self.fl = 0b00000001
+            else:
+                self.fl = 0b00000100
+            
         elif op == AND:
             self.pc += 3
             self.reg[reg_a] & self.reg[reg_b]
@@ -98,29 +106,49 @@ class CPU:
         print()
     
     '''handlers'''
-    def handle_ldi(self, op, register, value):
+    def handle_ldi(self, op, register, value, v = None):
         self.reg[register] = value
         self.pc +=3
         return 
-    def handle_prn(self, op, register, val = None):
+    def handle_prn(self, op, register, val = None, v = None):
         self.pc += 2
         return print(self.reg[register])
-    def handle_push(self, op, value, val = None):
+    def handle_push(self, op, value, val = None, v = None):
         self.reg[SP] -= 1
         reg_val = self.reg[value]
         self.ram[self.reg[SP]] = reg_val
         self.pc += 2
         return 
-    def handle_pop(self, op, register, val = None):
+    def handle_pop(self, op, register, val = None, v = None):
         val = self.ram[self.reg[SP]]
         self.reg[register] = val
         self.reg[SP] +=1
         self.pc += 2
         return 
-    def ret(self, op, register, value):
+    def handle_jmp(self, op, plus_one, val = None, v = None):
+        reg_num = plus_one
+        self.pc = self.reg[reg_num]
+    def handle_jeq(self, op, plus_one, val = None, v = None):
+        if self.fl == 0b00000001:
+            reg_num = plus_one
+            self.pc = self.reg[reg_num]
+        else:
+            self.pc += 2
+    def handle_jne(self, op, plus_one,  val = None, v = None):
+        if self.fl == 0b00000010:
+            reg_num = plus_one
+            self.pc = self.reg[reg_num]
+        elif self.fl == 0b00000100:
+            reg_num = plus_one
+            self.pc = self.reg[reg_num]
+        else:
+            self.pc += 2
+    def handle_addi(self, op, dest, register, val):
+        self.reg[dest] = self.reg[register] + val
+    def ret(self, op, register, value, v = None):
         self.pc = self.ram[self.reg[SP]]
         self.reg[SP] +=1 
-    def call(self, op, register, value):
+    def call(self, op, register, value, v = None):
         ret_add = self.pc +2
         self.reg[SP] -= 1
         self.ram[self.reg[SP]] = ret_add
@@ -136,7 +164,7 @@ class CPU:
                 halted = True
                 sys.exit(1)
             elif IR in self.bt:
-                self.bt[IR](IR, self.ram[self.pc+1], self.ram[self.pc+2])
+                self.bt[IR](IR, self.ram[self.pc+1], self.ram[self.pc+2], self.ram[self.pc+3])
             else: 
-                print('unsupported instruction!')
+                print(f'unsupported instruction! {bin(IR)}')
                 sys.exit(['error handling instruction'])
